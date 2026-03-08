@@ -1,0 +1,4 @@
+- Improve web interface to look nicer.
+- Create Dockerfile for the web app.
+- Web app should query the model first before calling the API since the payload requires the mode.
+- Create docker compose to connect both apps.
