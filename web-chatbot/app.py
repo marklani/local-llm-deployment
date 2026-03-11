@@ -2,6 +2,11 @@ import os
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 import requests
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--model", type=str, help="Model deployed in docker.")
+args = parser.parse_args()
 
 app = FastAPI()
 
@@ -23,7 +28,7 @@ async def chat(request: Request):
         user_message = data.get("message")
         print(user_message)
         payload = {
-            "model": "qwen3.5", # Change this to the model you have (e.g., mistral, phi3)
+            "model": f"{args.model}", # Change this to the model you have (e.g., mistral, phi3)
             "messages": [{"role": "user", "content": user_message}],
             "stream": False
         }
