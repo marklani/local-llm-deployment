@@ -4,19 +4,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Qwen 3.5 Multiline</title>
+    <title>Qwen 3.5 - Pro Interface</title>
+
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+
     <style>
         :root {
-            --bg: #131314;
-            --sidebar: #1e1f20;
-            --text: #e3e3e3;
-            --accent: #4e4feb;
-            --ai-msg: #282a2d;
-            --input-bg: #202124;
+            --bg: #0d1117;
+            --sidebar: #161b22;
+            --text: #c9d1d9;
+            --accent: #238636;
+            --ai-msg: #161b22;
+            --border: #30363d;
         }
 
         body {
-            font-family: 'Segoe UI', sans-serif;
+            font-family: -apple-system, sans-serif;
             background: var(--bg);
             color: var(--text);
             margin: 0;
@@ -28,7 +33,7 @@
             flex: 1;
             display: flex;
             flex-direction: column;
-            max-width: 900px;
+            max-width: 1000px;
             margin: 0 auto;
             width: 100%;
         }
@@ -37,62 +42,81 @@
             flex: 1;
             overflow-y: auto;
             padding: 20px;
-            white-space: pre-wrap;
-            /* Preserves newlines in AI response */
         }
 
         .message {
             padding: 16px;
             margin-bottom: 20px;
-            border-radius: 12px;
-            max-width: 85%;
+            border-radius: 6px;
+            max-width: 90%;
             line-height: 1.6;
+            border: 1px solid var(--border);
+            position: relative;
         }
 
         .user {
-            background: #303134;
+            background: #21262d;
             align-self: flex-end;
             margin-left: auto;
-            border-bottom-right-radius: 2px;
         }
 
         .ai {
             background: var(--ai-msg);
             align-self: flex-start;
-            border-bottom-left-radius: 2px;
         }
 
-        .msg-meta {
+        /* --- Code Block & Copy Button Styling --- */
+        .code-container {
+            position: relative;
+            margin: 15px 0;
+        }
+
+        pre {
+            background: #000 !important;
+            padding: 15px;
+            border-radius: 8px;
+            overflow-x: auto;
+            border: 1px solid #444;
+            margin: 0;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            background: #30363d;
+            color: #8b949e;
+            border: 1px solid #444;
+            padding: 4px 8px;
+            border-radius: 4px;
             font-size: 0.75rem;
-            color: #9aa0a6;
-            margin-top: 8px;
-            display: block;
-            text-align: right;
+            cursor: pointer;
+            transition: all 0.2s;
         }
 
-        #status-area {
-            padding: 0 20px 10px;
-            display: none;
-            align-items: center;
-            gap: 10px;
-            font-size: 0.9rem;
-            color: #8ab4f8;
+        .copy-btn:hover {
+            background: #444;
+            color: #fff;
         }
 
-        /* Multiline Input Styling */
+        .copy-btn.copied {
+            background: var(--accent);
+            color: white;
+            border-color: var(--accent);
+        }
+
+        /* Input Area */
         #input-area {
             padding: 20px;
-            background: var(--bg);
         }
 
         .input-box {
             display: flex;
-            background: var(--input-bg);
-            border: 1px solid #3c4043;
-            border-radius: 24px;
-            padding: 10px 15px;
+            background: #0d1117;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px;
             align-items: flex-end;
-            /* Keeps button at bottom for long texts */
         }
 
         textarea {
@@ -105,36 +129,24 @@
             font-size: 1rem;
             resize: none;
             max-height: 200px;
-            /* Max height before scrolling */
-            line-height: 1.5;
-            font-family: inherit;
         }
 
-        button {
+        button#send-btn {
             background: var(--accent);
             color: white;
             border: none;
-            padding: 10px 20px;
-            border-radius: 20px;
+            padding: 8px 16px;
+            border-radius: 6px;
             cursor: pointer;
-            font-weight: bold;
+            font-weight: 600;
             margin-left: 10px;
-            height: 40px;
         }
 
-        button:disabled {
-            background: #3c4043;
-            opacity: 0.6;
-        }
-
-        /* Custom Scrollbar for Textarea */
-        textarea::-webkit-scrollbar {
-            width: 5px;
-        }
-
-        textarea::-webkit-scrollbar-thumb {
-            background: #444;
-            border-radius: 5px;
+        #status-area {
+            padding: 0 20px 10px;
+            display: none;
+            color: #58a6ff;
+            font-size: 0.9rem;
         }
     </style>
 </head>
@@ -143,16 +155,12 @@
 
     <div id="chat-container">
         <div id="chat-box">
-            <div class="message ai">Qwen 3.5 Multiline Ready. (Shift+Enter for new line)</div>
+            <div class="message ai">Qwen 3.5 Pro Ready. Try asking for a Python script!</div>
         </div>
-
-        <div id="status-area">
-            <span>Thinking... <b id="live-timer">0.0</b>s</span>
-        </div>
-
+        <div id="status-area">Thinking... <b id="live-timer">0.0</b>s</div>
         <div id="input-area">
             <div class="input-box">
-                <textarea id="user-input" rows="1" placeholder="Ask Qwen 3.5..." autocomplete="off"></textarea>
+                <textarea id="user-input" rows="1" placeholder="Type your message..."></textarea>
                 <button id="send-btn" onclick="sendMessage()">Send</button>
             </div>
         </div>
@@ -163,18 +171,22 @@
         const userInput = document.getElementById('user-input');
         const statusArea = document.getElementById('status-area');
         const liveTimer = document.getElementById('live-timer');
-        let timerInterval;
 
-        // --- 1. Auto-resize logic ---
+        marked.setOptions({
+            highlight: function (code, lang) {
+                return hljs.highlightAuto(code).value;
+            },
+            breaks: true
+        });
+
         userInput.addEventListener('input', function () {
             this.style.height = 'auto';
             this.style.height = (this.scrollHeight) + 'px';
         });
 
-        // --- 2. Key Binding logic (Enter vs Shift+Enter) ---
         userInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault(); // Prevents adding a new line
+                e.preventDefault();
                 sendMessage();
             }
         });
@@ -183,17 +195,14 @@
             const text = userInput.value.trim();
             if (!text) return;
 
-            // UI Reset
             userInput.value = '';
-            userInput.style.height = 'auto'; // Reset height
-            userInput.disabled = true;
+            userInput.style.height = 'auto';
             appendMessage('user', text);
 
-            statusArea.style.display = 'flex';
+            statusArea.style.display = 'block';
             let startTime = performance.now();
-            timerInterval = setInterval(() => {
-                const elapsed = ((performance.now() - startTime) / 1000).toFixed(1);
-                liveTimer.innerText = elapsed;
+            let timerInterval = setInterval(() => {
+                liveTimer.innerText = ((performance.now() - startTime) / 1000).toFixed(1);
             }, 100);
 
             try {
@@ -202,32 +211,55 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ message: text })
                 });
-
                 const data = await response.json();
-                const totalTime = ((performance.now() - startTime) / 1000).toFixed(2);
-                appendMessage('ai', data.message.content, totalTime);
+                appendMessage('ai', data.message.content, ((performance.now() - startTime) / 1000).toFixed(2));
             } catch (e) {
-                appendMessage('ai', "Error: Could not reach the AI server.");
+                appendMessage('ai', "Error connecting to backend.");
             } finally {
                 clearInterval(timerInterval);
                 statusArea.style.display = 'none';
-                userInput.disabled = false;
-                userInput.focus();
-                chatBox.scrollTop = chatBox.scrollHeight;
             }
         }
 
         function appendMessage(role, text, time = null) {
             const div = document.createElement('div');
             div.className = `message ${role}`;
-            let content = `<div>${text}</div>`;
-            if (time) content += `<span class="msg-meta">Generated in ${time}s</span>`;
-            div.innerHTML = content;
+
+            // Parse Markdown
+            let htmlContent = marked.parse(text);
+
+            // Wrap <pre> tags in our container and add the button
+            htmlContent = htmlContent.replace(/<pre>/g, '<div class="code-container"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre>').replace(/<\/pre>/g, '</pre></div>');
+
+            let meta = time ? `<span style="font-size:0.7rem; color:#8b949e; display:block; margin-top:10px;">⏱️ ${time}s</span>` : "";
+            div.innerHTML = `<div>${htmlContent}</div>${meta}`;
+
             chatBox.appendChild(div);
+
+            div.querySelectorAll('pre code').forEach((block) => {
+                hljs.highlightElement(block);
+            });
+
             chatBox.scrollTop = chatBox.scrollHeight;
         }
-    </script>
 
+        // --- Clipboard Function ---
+        async function copyCode(btn) {
+            const code = btn.parentElement.querySelector('code').innerText;
+            try {
+                await navigator.clipboard.writeText(code);
+                btn.innerText = "Copied!";
+                btn.classList.add('copied');
+
+                setTimeout(() => {
+                    btn.innerText = "Copy";
+                    btn.classList.remove('copied');
+                }, 2000);
+            } catch (err) {
+                console.error('Failed to copy: ', err);
+            }
+        }
+    </script>
 </body>
 
 </html>
