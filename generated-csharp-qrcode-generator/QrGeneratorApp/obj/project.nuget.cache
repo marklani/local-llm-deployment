@@ -1,0 +1,12 @@
+{
+  "version": 2,
+  "dgSpecHash": "rWYWRtF+tw8=",
+  "success": true,
+  "projectFilePath": "C:\\Projects\\local-llm-deployment\\generated-csharp-qrcode-generator\\QrGeneratorApp\\QrGeneratorApp.csproj",
+  "expectedPackageFiles": [
+    "C:\\Users\\Lani\\.nuget\\packages\\microsoft.win32.systemevents\\6.0.0\\microsoft.win32.systemevents.6.0.0.nupkg.sha512",
+    "C:\\Users\\Lani\\.nuget\\packages\\qrcoder\\1.8.0\\qrcoder.1.8.0.nupkg.sha512",
+    "C:\\Users\\Lani\\.nuget\\packages\\system.drawing.common\\6.0.0\\system.drawing.common.6.0.0.nupkg.sha512"
+  ],
+  "logs": []
+}
