@@ -1,4 +1,4 @@
-FROM docker.io/ollama/ollama
+FROM docker.io/ollama/ollama:0.20.0
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt update && apt install sudo -y && sudo apt update
 RUN sudo apt-get update && sudo apt-get install -y --no-install-recommends \
@@ -13,5 +13,5 @@ RUN sudo apt-get update
 RUN sudo apt-get install -y nvidia-container-toolkit
 EXPOSE 11434
 # Pre-Install llama2
-RUN nohup bash -c "ollama serve &" && sleep 5 && ollama pull qwen3.5:4b
+# RUN nohup bash -c "ollama serve &" && sleep 5 && ollama pull gemma4:e4b
 CMD ["serve"]
