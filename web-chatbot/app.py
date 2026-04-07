@@ -16,7 +16,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 # --- 1. Setup Arguments & Model ---
 parser = argparse.ArgumentParser()
-parser.add_argument("--model", type=str, default="gemma4", help="Model deployed in ollama.")
+parser.add_argument("--model", type=str, default="gemma4:e4b", help="Model deployed in ollama.")
 args = parser.parse_args()
 
 app = FastAPI()
@@ -27,7 +27,11 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     summary: str
 
-llm = ChatOllama(model=args.model, temperature=0.7)
+llm = ChatOllama(
+    model=args.model,
+    temperature=0.7,
+    base_url="http://ollama:11434"
+)
 
 def chatbot_node(state: AgentState):
     summary = state.get("summary", "")

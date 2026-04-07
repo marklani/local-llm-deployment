@@ -13,5 +13,6 @@ RUN sudo apt-get update
 RUN sudo apt-get install -y nvidia-container-toolkit
 EXPOSE 11434
 # Pre-Install llama2
-RUN nohup bash -c "ollama serve &" && sleep 5 && ollama pull gemma4:e4b
+ARG MODEL_NAME
+RUN nohup bash -c "ollama serve &" && sleep 5 && ollama pull $MODEL_NAME
 CMD ["serve"]

@@ -1,0 +1,38 @@
+services:
+  ollama:
+    build:
+      context: .
+      dockerfile: Dockerfile_ollama
+      args:
+        - MODEL_NAME=${MODEL_NAME}
+    container_name: ollama
+    networks:
+      - chatbot-network
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+
+  localhost-chatbot:
+    build:
+      context: .
+      dockerfile: Dockerfile_app
+    container_name: web-assistant
+    ports:
+      - "8000:8000"
+    networks:
+      - chatbot-network
+    environment:
+      - MODEL_NAME=$MODEL_NAME
+    command: ["--model", "$MODEL_NAME"]
+    depends_on:
+      - ollama
+    volumes:
+      - ./memory.db:/app/memory.db # Persist the agent memory
+
+networks:
+  chatbot-network:
+    name: chatbot-network
