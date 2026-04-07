@@ -8,13 +8,6 @@ services:
     container_name: ollama
     networks:
       - chatbot-network
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
 
   localhost-chatbot:
     build:
@@ -30,8 +23,6 @@ services:
     command: ["--model", "$MODEL_NAME"]
     depends_on:
       - ollama
-    volumes:
-      - ./memory.db:/app/memory.db # Persist the agent memory
 
 networks:
   chatbot-network:

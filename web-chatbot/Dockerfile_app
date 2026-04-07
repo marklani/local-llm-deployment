@@ -13,6 +13,9 @@ COPY index.html .
 # Expose the port
 EXPOSE 8000
 
+# Ensure the database has a place to live
+RUN touch memory.db
+
 # We use an environment variable for the model name
 ENTRYPOINT ["python", "app.py"]
 CMD ["--model", "gemma4:e4b"]

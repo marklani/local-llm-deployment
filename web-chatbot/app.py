@@ -71,8 +71,11 @@ workflow.add_edge("chatbot", "summarize")
 workflow.add_edge("summarize", END)
 
 # Persistent SQLite memory
-conn = sqlite3.connect("memory.db", check_same_thread=False)
+DB_PATH = "memory.db"
+conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 memory = SqliteSaver(conn)
+# 3. CRITICAL: Create the schema (tables) if they don't exist
+# This sets up the 'checkpoints', 'writes', etc., tables internally
 agent = workflow.compile(checkpointer=memory)
 
 # --- 4. API Routes ---

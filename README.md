@@ -15,4 +15,4 @@ Open `localhost:8000` to talk to the chatbot.
 
 # Docker way
 Run `$env:MODEL_NAME="gemma4:e4b"; docker-compose up -d` in the `web-chatbot` folder for Windows.
-RUN `MODEL_NAME=qwen3-coder docker-compose up -d` in the `web-chatbot` folder for Linux.
+RUN `MODEL_NAME=gemma4:e4b docker-compose up -d` in the `web-chatbot` folder for Linux.
