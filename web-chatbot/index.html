@@ -65,7 +65,6 @@
             align-self: flex-start;
         }
 
-        /* --- Code Block & Copy Button Styling --- */
         .code-container {
             position: relative;
             margin: 15px 0;
@@ -91,18 +90,6 @@
             border-radius: 4px;
             font-size: 0.75rem;
             cursor: pointer;
-            transition: all 0.2s;
-        }
-
-        .copy-btn:hover {
-            background: #444;
-            color: #fff;
-        }
-
-        .copy-btn.copied {
-            background: var(--accent);
-            color: white;
-            border-color: var(--accent);
         }
 
         /* Input Area */
@@ -112,10 +99,31 @@
 
         .input-box {
             display: flex;
+            flex-direction: column;
+            /* Changed to column to stack preview and text */
             background: #0d1117;
             border: 1px solid var(--border);
             border-radius: 6px;
             padding: 10px;
+            align-items: flex-start;
+        }
+
+        #preview-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        #preview-container img {
+            max-height: 100px;
+            border-radius: 4px;
+            border: 1px solid var(--border);
+        }
+
+        .input-row {
+            display: flex;
+            width: 100%;
             align-items: flex-end;
         }
 
@@ -131,6 +139,16 @@
             max-height: 200px;
         }
 
+        #attach-btn {
+            background: transparent;
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+
         button#send-btn {
             background: var(--accent);
             color: white;
@@ -139,7 +157,6 @@
             border-radius: 6px;
             cursor: pointer;
             font-weight: 600;
-            margin-left: 10px;
         }
 
         #status-area {
@@ -155,13 +172,24 @@
 
     <div id="chat-container">
         <div id="chat-box">
-            <div class="message ai">Local chatbot ready. Try asking for a Python script!</div>
+            <div class="message ai">Local chatbot ready. Try asking for a Python script or sending an image!</div>
         </div>
         <div id="status-area">Thinking... <b id="live-timer">0.0</b>s</div>
+
         <div id="input-area">
             <div class="input-box">
-                <textarea id="user-input" rows="1" placeholder="Type your message..."></textarea>
-                <button id="send-btn" onclick="sendMessage()">Send</button>
+                <!-- Preview area for the image -->
+                <div id="preview-container"></div>
+
+                <div class="input-row">
+                    <!-- Hidden file input -->
+                    <input type="file" id="file-input" style="display:none;" accept="image/*"
+                        onchange="handleFileSelect(event)">
+                    <button id="attach-btn" onclick="document.getElementById('file-input').click()">📎</button>
+
+                    <textarea id="user-input" rows="1" placeholder="Type your message..."></textarea>
+                    <button id="send-btn" onclick="sendMessage()">Send</button>
+                </div>
             </div>
         </div>
     </div>
@@ -171,6 +199,9 @@
         const userInput = document.getElementById('user-input');
         const statusArea = document.getElementById('status-area');
         const liveTimer = document.getElementById('live-timer');
+        const previewContainer = document.getElementById('preview-container');
+
+        let currentMedia = null; // Holds the base64 data for the current message
 
         marked.setOptions({
             highlight: function (code, lang) {
@@ -191,13 +222,61 @@
             }
         });
 
+        // --- NEW: Handle File Selection and Convert to Base64 ---
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function (e) {
+                const base64Data = e.target.result;
+
+                // 1. Update Preview UI
+                previewContainer.innerHTML = `
+                    <img src="${base64Data}" />
+                    <button onclick="clearMedia()" style="color:red; background:none; border:none; cursor:pointer;">Remove</button>
+                `;
+
+                // 2. Store the data for the payload
+                // We strip the "data:image/jpeg;base64," prefix because the backend adds it back
+                currentMedia = {
+                    type: "image",
+                    data: base64Data.split(',')[1]
+                };
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function clearMedia() {
+            currentMedia = null;
+            previewContainer.innerHTML = '';
+            document.getElementById('file-input').value = ''; // Reset input
+        }
+
         async function sendMessage() {
             const text = userInput.value.trim();
-            if (!text) return;
 
+            // If there is no text and no image, don't send
+            if (!text && !currentMedia) return;
+
+            // Show the user message in the UI
+            if (currentMedia) {
+                // Create a small preview in the chat history for the user
+                const imgTag = `<img src="data:image/jpeg;base64,${currentMedia.data}" style="max-width:200px; border-radius:4px; border:1px solid #333;">`;
+                appendMessage('user', imgTag);
+            }
+
+            if (text) {
+                appendMessage('user', text);
+            }
+
+            // Clear inputs
+            const originalText = userInput.value;
             userInput.value = '';
             userInput.style.height = 'auto';
-            appendMessage('user', text);
+            const mediaToSend = currentMedia; // Copy to local variable
+
+            clearMedia(); // Clear UI preview/state
 
             statusArea.style.display = 'block';
             let startTime = performance.now();
@@ -209,8 +288,12 @@
                 const response = await fetch('/chat', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ message: text })
+                    body: JSON.stringify({
+                        message: originalText,
+                        media: mediaToSend
+                    })
                 });
+
                 const data = await response.json();
                 appendMessage('ai', data.message.content, ((performance.now() - startTime) / 1000).toFixed(2));
             } catch (e) {
@@ -225,7 +308,7 @@
             const div = document.createElement('div');
             div.className = `message ${role}`;
 
-            // Parse Markdown
+            // Parse Markdown (Note: images are passed as raw HTML here)
             let htmlContent = marked.parse(text);
 
             // Wrap <pre> tags in our container and add the button
@@ -243,14 +326,12 @@
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 
-        // --- Clipboard Function ---
         async function copyCode(btn) {
             const code = btn.parentElement.querySelector('code').innerText;
             try {
                 await navigator.clipboard.writeText(code);
                 btn.innerText = "Copied!";
                 btn.classList.add('copied');
-
                 setTimeout(() => {
                     btn.innerText = "Copy";
                     btn.classList.remove('copied');

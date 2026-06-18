@@ -1,14 +1,14 @@
 import os
 import argparse
 import sqlite3
-from typing import Annotated, TypedDict
+import json # Ensure json is imported
+from typing import Annotated, TypedDict, List, Union, Dict
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 import uvicorn
 
 # LangChain / LangGraph Imports
-# Changed: Using LlamaCpp instead of ChatOllama
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, RemoveMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
@@ -28,22 +28,24 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     summary: str
 
-# Changed: Initializing ChatLlamaCpp
-# Note: You may need to adjust n_ctx based on your hardware and context needs
+# Note: For multimodal to work, the llama.cpp server must be running a
+# Vision-capable model (like LLaVA or a Vision-variant of Gemma).
 llm = ChatOpenAI(
-    base_url="http://localhost:12434/v1", # Default llama.cpp server port
+    base_url="http://localhost:12434/v1",
     api_key="sk-no-key-required",
     model=args.model
 )
 
 def chatbot_node(state: AgentState):
     summary = state.get("summary", "")
+    # In a multimodal setup, 'messages' contains the history
     messages = state["messages"]
 
     if summary:
         system_msg = SystemMessage(content=f"Summary of previous conversation: {summary}")
         messages = [system_msg] + messages
 
+    # The LLM.invoke handles the list of content blocks automatically
     response = llm.invoke(messages)
     return {"messages": [response]}
 
@@ -87,11 +89,33 @@ async def index():
 async def chat(request: Request):
     try:
         data = await request.json()
-        user_message = data.get("message")
+        user_text = data.get("message", "")
+        media_data = data.get("media") # This will be a dict or None
+
+        # --- MULTIMODAL MESSAGE CONSTRUCTION ---
+        content = []
+
+        # 1. Add the media if it exists
+        if media_data and media_data.get("type") == "image":
+            base64_string = media_data.get("data")
+            content.append({
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{base64_string}"
+                }
+            })
+
+        # 2. Add the text
+        content.append({
+            "type": "text",
+            "text": user_text
+        })
+
         config = {"configurable": {"thread_id": "default_user"}}
 
+        # Pass the list of content blocks to the HumanMessage
         result = agent.invoke(
-            {"messages": [HumanMessage(content=user_message)]},
+            {"messages": [HumanMessage(content=content)]},
             config=config
         )
 
