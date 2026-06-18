@@ -73,6 +73,11 @@ workflow.add_edge("summarize", END)
 
 DB_PATH = "memory.db"
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+
+# Enable Write-Ahead Logging (WAL) to prevent database corruption under concurrent requests
+conn.execute("PRAGMA journal_mode=WAL;")
+conn.execute("PRAGMA synchronous=NORMAL;")
+
 memory = SqliteSaver(conn)
 agent = workflow.compile(checkpointer=memory)
 
@@ -89,37 +94,41 @@ async def index():
 async def chat(request: Request):
     try:
         data = await request.json()
-        user_text = data.get("message", "")
-        media_data = data.get("media") # This will be a dict or None
+        user_text = data.get("message", "").strip()
+        media_data = data.get("media")
+
+        if not user_text and not media_data:
+            raise HTTPException(status_code=400, detail="Empty request payload received.")
 
         # --- MULTIMODAL MESSAGE CONSTRUCTION ---
         content = []
-
-        # 1. Add the media if it exists
         if media_data and media_data.get("type") == "image":
             base64_string = media_data.get("data")
-            content.append({
-                "type": "image_url",
-                "image_url": {
-                    "url": f"data:image/jpeg;base64,{base64_string}"
-                }
-            })
+            if base64_string: # Basic sanitization
+                content.append({
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{base64_string}"}
+                })
 
-        # 2. Add the text
-        content.append({
-            "type": "text",
-            "text": user_text
-        })
+        if user_text:
+            content.append({
+                "type": "text",
+                "text": user_text
+            })
 
         config = {"configurable": {"thread_id": "default_user"}}
 
-        # Pass the list of content blocks to the HumanMessage
-        result = agent.invoke(
-            {"messages": [HumanMessage(content=content)]},
-            config=config
-        )
-
-        final_msg = result["messages"][-1]
+        # Separate block for Graph/DB execution
+        try:
+            result = agent.invoke(
+                {"messages": [HumanMessage(content=content)]},
+                config=config
+            )
+            final_msg = result["messages"][-1]
+        except Exception as graph_err:
+            # If the graph fails, the checkpointer rolls back. We catch it here.
+            print(f"Database/Graph state aborted safely: {graph_err}")
+            raise HTTPException(status_code=500, detail="Failed to process conversation state.")
 
         return {
             "message": {
@@ -128,9 +137,13 @@ async def chat(request: Request):
             }
         }
 
+    except HTTPException as http_exc:
+        # Re-raise explicit HTTP exceptions we generated intentionally
+        raise http_exc
     except Exception as e:
-        print(f"Error: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        # Catch unexpected server crashes/JSON parsing failures safely
+        print(f"Critical System Error: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error.")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
