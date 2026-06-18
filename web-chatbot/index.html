@@ -100,7 +100,6 @@
         .input-box {
             display: flex;
             flex-direction: column;
-            /* Changed to column to stack preview and text */
             background: #0d1117;
             border: 1px solid var(--border);
             border-radius: 6px;
@@ -178,11 +177,9 @@
 
         <div id="input-area">
             <div class="input-box">
-                <!-- Preview area for the image -->
                 <div id="preview-container"></div>
 
                 <div class="input-row">
-                    <!-- Hidden file input -->
                     <input type="file" id="file-input" style="display:none;" accept="image/*"
                         onchange="handleFileSelect(event)">
                     <button id="attach-btn" onclick="document.getElementById('file-input').click()">📎</button>
@@ -222,27 +219,57 @@
             }
         });
 
-        // --- NEW: Handle File Selection and Convert to Base64 ---
+        // --- UPDATED: Converts selected image to PNG using Canvas API before base64 generation ---
         function handleFileSelect(event) {
             const file = event.target.files[0];
             if (!file) return;
 
             const reader = new FileReader();
             reader.onload = function (e) {
-                const base64Data = e.target.result;
+                const img = new Image();
+                img.onload = function () {
+                    const canvas = document.createElement('canvas');
 
-                // 1. Update Preview UI
-                previewContainer.innerHTML = `
-                    <img src="${base64Data}" />
-                    <button onclick="clearMedia()" style="color:red; background:none; border:none; cursor:pointer;">Remove</button>
-                `;
+                    // --- NEW: Scale down image if it exceeds a maximum dimension ---
+                    const MAX_WIDTH = 1024;
+                    const MAX_HEIGHT = 1024;
+                    let width = img.width;
+                    let height = img.height;
 
-                // 2. Store the data for the payload
-                // We strip the "data:image/jpeg;base64," prefix because the backend adds it back
-                currentMedia = {
-                    type: "image",
-                    data: base64Data.split(',')[1]
+                    if (width > height) {
+                        if (width > MAX_WIDTH) {
+                            height *= MAX_WIDTH / width;
+                            width = MAX_WIDTH;
+                        }
+                    } else {
+                        if (height > MAX_HEIGHT) {
+                            width *= MAX_HEIGHT / height;
+                            height = MAX_HEIGHT;
+                        }
+                    }
+
+                    canvas.width = width;
+                    canvas.height = height;
+
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, width, height);
+
+                    // Force target image formatting to image/png
+                    const pngBase64Data = canvas.toDataURL('image/png');
+
+                    // 1. Update Preview UI
+                    previewContainer.innerHTML = `
+                <img src="${pngBase64Data}" />
+                <button onclick="clearMedia()" style="color:red; background:none; border:none; cursor:pointer;">Remove</button>
+            `;
+
+                    // 2. Store the data for the payload
+                    currentMedia = {
+                        type: "image",
+                        data: pngBase64Data.split(',')[1]
+                    };
                 };
+                img.src = e.target.result;
             };
             reader.readAsDataURL(file);
         }
@@ -261,8 +288,8 @@
 
             // Show the user message in the UI
             if (currentMedia) {
-                // Create a small preview in the chat history for the user
-                const imgTag = `<img src="data:image/jpeg;base64,${currentMedia.data}" style="max-width:200px; border-radius:4px; border:1px solid #333;">`;
+                // Create a small preview in the chat history for the user (Changed to image/png syntax)
+                const imgTag = `<img src="data:image/png;base64,${currentMedia.data}" style="max-width:200px; border-radius:4px; border:1px solid #333;">`;
                 appendMessage('user', imgTag);
             }
 
