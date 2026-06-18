@@ -27,6 +27,7 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     summary: str
+    image_data: str  # <--- Store the temporary base64 string here instead of messages
 
 # Note: For multimodal to work, the llama.cpp server must be running a
 # Vision-capable model (like LLaVA or a Vision-variant of Gemma).
@@ -38,29 +39,57 @@ llm = ChatOpenAI(
 
 def chatbot_node(state: AgentState):
     summary = state.get("summary", "")
-    # In a multimodal setup, 'messages' contains the history
     messages = state["messages"]
+    image_data = state.get("image_data")
+
+    # If there is an image, attach it to the LAST message just for this live LLM call
+    if image_data:
+        # Clone the last message and make it multimodal for the LLM
+        last_msg = messages[-1]
+        multimodal_content = [
+            {"type": "text", "text": last_msg.content},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
+        ]
+        # Swap the last message out for the live payload invocation
+        messages = messages[:-1] + [HumanMessage(content=multimodal_content, id=last_msg.id)]
 
     if summary:
         system_msg = SystemMessage(content=f"Summary of previous conversation: {summary}")
         messages = [system_msg] + messages
 
-    # The LLM.invoke handles the list of content blocks automatically
     response = llm.invoke(messages)
-    return {"messages": [response]}
+
+    # We clear 'image_data' by returning an empty string so subsequent nodes don't see it
+    return {"messages": [response], "image_data": ""}
 
 def summarizer_node(state: AgentState):
-    if len(state["messages"]) <= 15:
+
+    # 1. Manually filter out the ephemeral image so it never reaches the summarizer LLM call
+    clean_messages = [msg for msg in state["messages"] if msg.id != "ephemeral_image"]
+
+    # Only summarize if remaining text history is getting long
+    if len(clean_messages) <= 15:
         return {}
 
     existing_summary = state.get("summary", "")
-    prompt = f"Current summary: {existing_summary}\n\nExtend the summary with the new info:" if existing_summary else "Summarize this chat:"
+    prompt = (
+        f"Current summary: {existing_summary}\n\nExtend the summary with the new info:"
+        if existing_summary else "Summarize this chat:"
+    )
 
-    messages = state["messages"] + [SystemMessage(content=prompt)]
-    response = llm.invoke(messages)
+    # Use clean_messages here!
+    messages = clean_messages + [SystemMessage(content=prompt)]
+    print("Sending clean messages to summarizer (No Base64!):", len(messages))
 
-    delete_msgs = [RemoveMessage(id=m.id) for m in state["messages"][:-3]]
-    return {"summary": response.content, "messages": delete_msgs}
+    try:
+        response = llm.invoke(messages)
+        # Delete older text messages based on the clean list
+        delete_msgs = [RemoveMessage(id=m.id) for m in clean_messages[:-3]]
+        return {"summary": response.content, "messages": delete_msgs}
+
+    except Exception as e:
+        print(f"[Warning] Summarizer failed safely: {e}. Lowering priority; will retry next turn.")
+        return {}
 
 # --- 3. Build & Compile the Graph ---
 workflow = StateGraph(AgentState)
@@ -98,35 +127,29 @@ async def chat(request: Request):
         media_data = data.get("media")
 
         if not user_text and not media_data:
-            raise HTTPException(status_code=400, detail="Empty request payload received.")
+            raise HTTPException(status_code=400, detail="Empty request payload.")
 
-        # --- MULTIMODAL MESSAGE CONSTRUCTION ---
-        content = []
+        payload_messages = []
+
+        base64_string = None
         if media_data and media_data.get("type") == "image":
             base64_string = media_data.get("data")
-            if base64_string: # Basic sanitization
-                content.append({
-                    "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{base64_string}"}
-                })
 
         if user_text:
-            content.append({
-                "type": "text",
-                "text": user_text
-            })
+            payload_messages.append(HumanMessage(content=user_text))
 
         config = {"configurable": {"thread_id": "default_user"}}
 
-        # Separate block for Graph/DB execution
         try:
             result = agent.invoke(
-                {"messages": [HumanMessage(content=content)]},
+                {
+                    "messages": payload_messages,
+                    "image_data": base64_string  # <--- Sent directly to this run
+                },
                 config=config
             )
             final_msg = result["messages"][-1]
         except Exception as graph_err:
-            # If the graph fails, the checkpointer rolls back. We catch it here.
             print(f"Database/Graph state aborted safely: {graph_err}")
             raise HTTPException(status_code=500, detail="Failed to process conversation state.")
 
