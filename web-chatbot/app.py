@@ -8,7 +8,8 @@ from fastapi.responses import FileResponse, HTMLResponse
 import uvicorn
 
 # LangChain / LangGraph Imports
-from langchain_ollama import ChatOllama
+# Changed: Using LlamaCpp instead of ChatOllama
+from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, RemoveMessage, HumanMessage
 from langgraph.graph import StateGraph, START, END
 from langgraph.graph.message import add_messages
@@ -16,7 +17,7 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 # --- 1. Setup Arguments & Model ---
 parser = argparse.ArgumentParser()
-parser.add_argument("--model", type=str, default="gemma4:e4b", help="Model deployed in ollama.")
+parser.add_argument("--model", type=str, default="gemma4:e4b", help="Model deployed in docker model runner.")
 args = parser.parse_args()
 
 app = FastAPI()
@@ -27,10 +28,12 @@ class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     summary: str
 
-llm = ChatOllama(
-    model=args.model,
-    temperature=0.7,
-    base_url="http://ollama:11434"
+# Changed: Initializing ChatLlamaCpp
+# Note: You may need to adjust n_ctx based on your hardware and context needs
+llm = ChatOpenAI(
+    base_url="http://localhost:12434/v1", # Default llama.cpp server port
+    api_key="sk-no-key-required",
+    model=args.model
 )
 
 def chatbot_node(state: AgentState):
@@ -38,7 +41,6 @@ def chatbot_node(state: AgentState):
     messages = state["messages"]
 
     if summary:
-        # Inject summary as context for the model
         system_msg = SystemMessage(content=f"Summary of previous conversation: {summary}")
         messages = [system_msg] + messages
 
@@ -46,7 +48,6 @@ def chatbot_node(state: AgentState):
     return {"messages": [response]}
 
 def summarizer_node(state: AgentState):
-    # Summarize if context gets long (e.g., > 15 messages)
     if len(state["messages"]) <= 15:
         return {}
 
@@ -56,9 +57,7 @@ def summarizer_node(state: AgentState):
     messages = state["messages"] + [SystemMessage(content=prompt)]
     response = llm.invoke(messages)
 
-    # Keep the last 3 messages for immediate continuity, delete the rest
     delete_msgs = [RemoveMessage(id=m.id) for m in state["messages"][:-3]]
-
     return {"summary": response.content, "messages": delete_msgs}
 
 # --- 3. Build & Compile the Graph ---
@@ -70,12 +69,9 @@ workflow.add_edge(START, "chatbot")
 workflow.add_edge("chatbot", "summarize")
 workflow.add_edge("summarize", END)
 
-# Persistent SQLite memory
 DB_PATH = "memory.db"
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
 memory = SqliteSaver(conn)
-# 3. CRITICAL: Create the schema (tables) if they don't exist
-# This sets up the 'checkpoints', 'writes', etc., tables internally
 agent = workflow.compile(checkpointer=memory)
 
 # --- 4. API Routes ---
@@ -92,18 +88,13 @@ async def chat(request: Request):
     try:
         data = await request.json()
         user_message = data.get("message")
-
-        # In a real app, 'thread_id' would come from a cookie or user login
-        # Here we use a hardcoded 'default_user' to keep memory across refreshes
         config = {"configurable": {"thread_id": "default_user"}}
 
-        # Run the agent
         result = agent.invoke(
             {"messages": [HumanMessage(content=user_message)]},
             config=config
         )
 
-        # Get the last message from the result
         final_msg = result["messages"][-1]
 
         return {
