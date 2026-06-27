@@ -1,12 +1,15 @@
 import os
 import argparse
 import sqlite3
-import json # Ensure json is imported
+import json
+import base64
+import io
 from typing import Annotated, TypedDict, List, Union, Dict
 
 from fastapi import FastAPI, Request, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse
 import uvicorn
+from pypdf import PdfReader  # <--- Added for PDF processing
 
 # LangChain / LangGraph Imports
 from langchain_openai import ChatOpenAI
@@ -27,10 +30,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 class AgentState(TypedDict):
     messages: Annotated[list, add_messages]
     summary: str
-    image_data: str  # <--- Store the temporary base64 string here instead of messages
+    image_data: str
 
-# Note: For multimodal to work, the llama.cpp server must be running a
-# Vision-capable model (like LLaVA or a Vision-variant of Gemma).
 llm = ChatOpenAI(
     base_url="http://localhost:12434/v1",
     api_key="sk-no-key-required",
@@ -42,15 +43,12 @@ def chatbot_node(state: AgentState):
     messages = state["messages"]
     image_data = state.get("image_data")
 
-    # If there is an image, attach it to the LAST message just for this live LLM call
     if image_data:
-        # Clone the last message and make it multimodal for the LLM
         last_msg = messages[-1]
         multimodal_content = [
             {"type": "text", "text": last_msg.content},
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{image_data}"}}
         ]
-        # Swap the last message out for the live payload invocation
         messages = messages[:-1] + [HumanMessage(content=multimodal_content, id=last_msg.id)]
 
     if summary:
@@ -58,16 +56,11 @@ def chatbot_node(state: AgentState):
         messages = [system_msg] + messages
 
     response = llm.invoke(messages)
-
-    # We clear 'image_data' by returning an empty string so subsequent nodes don't see it
     return {"messages": [response], "image_data": ""}
 
 def summarizer_node(state: AgentState):
-
-    # 1. Manually filter out the ephemeral image so it never reaches the summarizer LLM call
     clean_messages = [msg for msg in state["messages"] if msg.id != "ephemeral_image"]
 
-    # Only summarize if remaining text history is getting long
     if len(clean_messages) <= 15:
         return {}
 
@@ -77,18 +70,15 @@ def summarizer_node(state: AgentState):
         if existing_summary else "Summarize this chat:"
     )
 
-    # Use clean_messages here!
     messages = clean_messages + [SystemMessage(content=prompt)]
     print("Sending clean messages to summarizer (No Base64!):", len(messages))
 
     try:
         response = llm.invoke(messages)
-        # Delete older text messages based on the clean list
         delete_msgs = [RemoveMessage(id=m.id) for m in clean_messages[:-3]]
         return {"summary": response.content, "messages": delete_msgs}
-
     except Exception as e:
-        print(f"[Warning] Summarizer failed safely: {e}. Lowering priority; will retry next turn.")
+        print(f"[Warning] Summarizer failed safely: {e}.")
         return {}
 
 # --- 3. Build & Compile the Graph ---
@@ -102,13 +92,29 @@ workflow.add_edge("summarize", END)
 
 DB_PATH = "memory.db"
 conn = sqlite3.connect(DB_PATH, check_same_thread=False)
-
-# Enable Write-Ahead Logging (WAL) to prevent database corruption under concurrent requests
 conn.execute("PRAGMA journal_mode=WAL;")
 conn.execute("PRAGMA synchronous=NORMAL;")
 
 memory = SqliteSaver(conn)
 agent = workflow.compile(checkpointer=memory)
+
+# --- Helper to parse PDF ---
+def extract_text_from_b64_pdf(b64_string: str) -> str:
+    try:
+        pdf_bytes = base64.b64decode(b64_string)
+        pdf_file = io.BytesIO(pdf_bytes)
+        reader = PdfReader(pdf_file)
+
+        text_content = []
+        for i, page in enumerate(reader.pages):
+            text = page.extract_text()
+            if text:
+                text_content.append(f"--- Page {i+1} ---\n{text}")
+
+        return "\n\n".join(text_content)
+    except Exception as e:
+        print(f"Error parsing PDF: {e}")
+        return "[Error: Could not extract text from this PDF file]"
 
 # --- 4. API Routes ---
 
@@ -130,10 +136,19 @@ async def chat(request: Request):
             raise HTTPException(status_code=400, detail="Empty request payload.")
 
         payload_messages = []
+        base64_image_string = None
 
-        base64_string = None
-        if media_data and media_data.get("type") == "image":
-            base64_string = media_data.get("data")
+        # Process attached media
+        if media_data:
+            media_type = media_data.get("type")
+            media_b64 = media_data.get("data")
+
+            if media_type == "image":
+                base64_image_string = media_b64
+            elif media_type == "pdf":
+                pdf_text = extract_text_from_b64_pdf(media_b64)
+                # Inject extracted text into the user's message context clearly
+                user_text = f"{user_text}\n\n[Attached Document Contents]\n{pdf_text}".strip()
 
         if user_text:
             payload_messages.append(HumanMessage(content=user_text))
@@ -144,7 +159,7 @@ async def chat(request: Request):
             result = agent.invoke(
                 {
                     "messages": payload_messages,
-                    "image_data": base64_string  # <--- Sent directly to this run
+                    "image_data": base64_image_string
                 },
                 config=config
             )
@@ -161,10 +176,8 @@ async def chat(request: Request):
         }
 
     except HTTPException as http_exc:
-        # Re-raise explicit HTTP exceptions we generated intentionally
         raise http_exc
     except Exception as e:
-        # Catch unexpected server crashes/JSON parsing failures safely
         print(f"Critical System Error: {e}")
         raise HTTPException(status_code=500, detail="Internal server error.")
 

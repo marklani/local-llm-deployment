@@ -120,6 +120,17 @@
             border: 1px solid var(--border);
         }
 
+        .pdf-preview-badge {
+            background: #21262d;
+            border: 1px solid var(--border);
+            padding: 10px 15px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9rem;
+        }
+
         .input-row {
             display: flex;
             width: 100%;
@@ -171,7 +182,8 @@
 
     <div id="chat-container">
         <div id="chat-box">
-            <div class="message ai">Local chatbot ready. Try asking for a Python script or sending an image!</div>
+            <div class="message ai">Local chatbot ready. Try asking for a Python script, sending an image, or importing
+                a PDF!</div>
         </div>
         <div id="status-area">Thinking... <b id="live-timer">0.0</b>s</div>
 
@@ -180,7 +192,7 @@
                 <div id="preview-container"></div>
 
                 <div class="input-row">
-                    <input type="file" id="file-input" style="display:none;" accept="image/*"
+                    <input type="file" id="file-input" style="display:none;" accept="image/*,application/pdf"
                         onchange="handleFileSelect(event)">
                     <button id="attach-btn" onclick="document.getElementById('file-input').click()">📎</button>
 
@@ -198,7 +210,7 @@
         const liveTimer = document.getElementById('live-timer');
         const previewContainer = document.getElementById('preview-container');
 
-        let currentMedia = null; // Holds the base64 data for the current message
+        let currentMedia = null;
 
         marked.setOptions({
             highlight: function (code, lang) {
@@ -219,18 +231,36 @@
             }
         });
 
-        // --- UPDATED: Converts selected image to PNG using Canvas API before base64 generation ---
         function handleFileSelect(event) {
             const file = event.target.files[0];
             if (!file) return;
 
+            // Handle PDF selection logic
+            if (file.type === "application/pdf") {
+                const reader = new FileReader();
+                reader.onload = function (e) {
+                    previewContainer.innerHTML = `
+                        <div class="pdf-preview-badge">
+                            📄 <span>${file.name}</span>
+                            <button onclick="clearMedia()" style="color:red; background:none; border:none; cursor:pointer; margin-left:10px;">Remove</button>
+                        </div>
+                    `;
+                    currentMedia = {
+                        type: "pdf",
+                        name: file.name,
+                        data: e.target.result.split(',')[1]
+                    };
+                };
+                reader.readAsDataURL(file);
+                return;
+            }
+
+            // Handle Image selection logic
             const reader = new FileReader();
             reader.onload = function (e) {
                 const img = new Image();
                 img.onload = function () {
                     const canvas = document.createElement('canvas');
-
-                    // --- NEW: Scale down image if it exceeds a maximum dimension ---
                     const MAX_WIDTH = 1024;
                     const MAX_HEIGHT = 1024;
                     let width = img.width;
@@ -254,16 +284,13 @@
                     const ctx = canvas.getContext('2d');
                     ctx.drawImage(img, 0, 0, width, height);
 
-                    // Force target image formatting to image/png
                     const pngBase64Data = canvas.toDataURL('image/png');
 
-                    // 1. Update Preview UI
                     previewContainer.innerHTML = `
-                <img src="${pngBase64Data}" />
-                <button onclick="clearMedia()" style="color:red; background:none; border:none; cursor:pointer;">Remove</button>
-            `;
+                        <img src="${pngBase64Data}" />
+                        <button onclick="clearMedia()" style="color:red; background:none; border:none; cursor:pointer;">Remove</button>
+                    `;
 
-                    // 2. Store the data for the payload
                     currentMedia = {
                         type: "image",
                         data: pngBase64Data.split(',')[1]
@@ -277,33 +304,34 @@
         function clearMedia() {
             currentMedia = null;
             previewContainer.innerHTML = '';
-            document.getElementById('file-input').value = ''; // Reset input
+            document.getElementById('file-input').value = '';
         }
 
         async function sendMessage() {
             const text = userInput.value.trim();
 
-            // If there is no text and no image, don't send
             if (!text && !currentMedia) return;
 
-            // Show the user message in the UI
             if (currentMedia) {
-                // Create a small preview in the chat history for the user (Changed to image/png syntax)
-                const imgTag = `<img src="data:image/png;base64,${currentMedia.data}" style="max-width:200px; border-radius:4px; border:1px solid #333;">`;
-                appendMessage('user', imgTag);
+                if (currentMedia.type === "image") {
+                    const imgTag = `<img src="data:image/png;base64,${currentMedia.data}" style="max-width:200px; border-radius:4px; border:1px solid #333;">`;
+                    appendMessage('user', imgTag);
+                } else if (currentMedia.type === "pdf") {
+                    const pdfTag = `<div class="pdf-preview-badge" style="display:inline-flex; max-width:max-content; margin-bottom:5px;">📄 Attached Document: ${currentMedia.name}</div>`;
+                    appendMessage('user', pdfTag);
+                }
             }
 
             if (text) {
                 appendMessage('user', text);
             }
 
-            // Clear inputs
             const originalText = userInput.value;
             userInput.value = '';
             userInput.style.height = 'auto';
-            const mediaToSend = currentMedia; // Copy to local variable
+            const mediaToSend = currentMedia;
 
-            clearMedia(); // Clear UI preview/state
+            clearMedia();
 
             statusArea.style.display = 'block';
             let startTime = performance.now();
@@ -335,10 +363,7 @@
             const div = document.createElement('div');
             div.className = `message ${role}`;
 
-            // Parse Markdown (Note: images are passed as raw HTML here)
             let htmlContent = marked.parse(text);
-
-            // Wrap <pre> tags in our container and add the button
             htmlContent = htmlContent.replace(/<pre>/g, '<div class="code-container"><button class="copy-btn" onclick="copyCode(this)">Copy</button><pre>').replace(/<\/pre>/g, '</pre></div>');
 
             let meta = time ? `<span style="font-size:0.7rem; color:#8b949e; display:block; margin-top:10px;">⏱️ ${time}s</span>` : "";
