@@ -1,29 +1,15 @@
 services:
-  ollama:
-    build:
-      context: .
-      dockerfile: Dockerfile_ollama
-      args:
-        - MODEL_NAME=${MODEL_NAME}
-    container_name: ollama
-    networks:
-      - chatbot-network
-
-  localhost-chatbot:
-    build:
-      context: .
-      dockerfile: Dockerfile_app
-    container_name: web-assistant
+  app:
+    build: .
     ports:
       - "8000:8000"
-    networks:
-      - chatbot-network
-    environment:
-      - MODEL_NAME=$MODEL_NAME
-    command: ["--model", "$MODEL_NAME"]
-    depends_on:
-      - ollama
+    volumes:
+      - ./memory.db:/app/memory.db
+    # Bind the model component directly to the app service
+    models:
+      - chatbot_llm
 
-networks:
-  chatbot-network:
-    name: chatbot-network
+models:
+  chatbot_llm:
+    # Set the OCI registry path of your target model
+    model: ai/gemma4:12B

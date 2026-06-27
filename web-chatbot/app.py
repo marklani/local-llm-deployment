@@ -20,7 +20,9 @@ from langgraph.checkpoint.sqlite import SqliteSaver
 
 # --- 1. Setup Arguments & Model ---
 parser = argparse.ArgumentParser()
-parser.add_argument("--model", type=str, default="gemma4:e4b", help="Model deployed in docker model runner.")
+# Fallback to the environment variable injected by Docker Compose if available
+default_model = os.environ.get("CHATBOT_LLM_MODEL", "gemma4:e4b")
+parser.add_argument("--model", type=str, default=default_model, help="Model deployed in docker model runner.")
 args = parser.parse_args()
 
 app = FastAPI()
@@ -32,8 +34,11 @@ class AgentState(TypedDict):
     summary: str
     image_data: str
 
+# Map dynamically to the Model Runner injected URL, fallback to localhost
+base_url = os.environ.get("CHATBOT_LLM_URL", "http://localhost:12434/v1")
+
 llm = ChatOpenAI(
-    base_url="http://localhost:12434/v1",
+    base_url=base_url,
     api_key="sk-no-key-required",
     model=args.model
 )

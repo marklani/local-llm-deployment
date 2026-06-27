@@ -1,4 +1,0 @@
-- Create proper chatbot that remembers context. Right now it is basically ollama serve.
-- Create Dockerfile for the web app.
-- Web app should query the model first before calling the API since the payload requires the model.
-- Create docker compose to connect both apps.

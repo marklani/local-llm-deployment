@@ -14,5 +14,6 @@ Run `python app.py --model gemma4:31b` in the `web-chatbot` to run the web inter
 Open `localhost:8000` to talk to the chatbot.
 
 # Docker way
-Run `$env:MODEL_NAME="gemma4:e4b"; docker-compose up -d` in the `web-chatbot` folder for Windows.
-RUN `MODEL_NAME=gemma4:e4b docker-compose up -d` in the `web-chatbot` folder for Linux.
+Run `docker compose up -d --build` in the `web-chatbot` folder for Windows.
+Sometimes the build will fail due to the model runner. Retry until it works.
+The memory will persist in the container.
